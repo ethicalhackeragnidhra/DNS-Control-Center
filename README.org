@@ -383,21 +383,6 @@ The combined graph is a normalized comparison view, not a claim of unique client
     └── policies.html
 #+end_src
 
-* GitHub upload
-
-The supplied repository package is already cleaned for source control. The runtime SQLite database, =.env=, Python bytecode, and local editor files are ignored.
-
-Typical first push:
-
-#+begin_src sh
-git init
-git add .
-git commit -m "Initial DNS Control Center"
-git branch -M main
-git remote add origin <your-github-repository-url>
-git push -u origin main
-#+end_src
-
 * License
 
 No license is imposed by this repository package. Add the license that matches how you intend to distribute the project before making the repository public.
