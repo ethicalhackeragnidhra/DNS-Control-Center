@@ -1,0 +1,15 @@
+services:
+  dns-control-center:
+    build: .
+    container_name: dns-control-center
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Kolkata
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    volumes:
+      - ./data:/app/data
+    # Recommended: bind the port only to your Tailscale/LAN interface,
+    # or remove `ports` and publish it through your reverse proxy.

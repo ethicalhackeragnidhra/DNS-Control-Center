@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overview · {{ app_name }}</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body class="console-body">
+<div class="console-shell">
+  <aside class="rail">
+    <div class="brand-block">
+      <div class="brand-mark">D</div>
+      <div><div class="brand-name">{{ app_name }}</div><div class="brand-sub">DNS observatory</div></div>
+    </div>
+    <div class="rail-section">MONITOR</div>
+    <nav>
+      <a class="nav-link active" href="/"><span class="nav-icon">◈</span>Overview</a>
+      <a class="nav-link" href="/activity"><span class="nav-icon">≋</span>Live traffic</a>
+      <a class="nav-link" href="/policies"><span class="nav-icon">⌘</span>Policies</a>
+    </nav>
+    <div class="rail-section">SYSTEM</div>
+    <div class="service-mini" id="rail-services"></div>
+    <div class="rail-foot">
+      <div class="system-state"><span class="state-dot"></span>Local console</div>
+      <form method="post" action="/logout"><button class="ghost-link">Sign out</button></form>
+    </div>
+  </aside>
+
+  <main class="workspace">
+    <header class="topbar">
+      <div>
+        <div class="crumb">DNS / OVERVIEW</div>
+        <h1>Traffic, blocking and policy activity</h1>
+        <p>Independent provider views plus a normalized combined stream. Parallel upstreams can observe the same DNS query.</p>
+      </div>
+      <div class="top-actions">
+        <span class="live-indicator"><span class="state-dot"></span>LIVE READY</span>
+        <a class="square-btn" href="/activity">Activity</a>
+        <a class="square-btn primary" href="/policies">Policies</a>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="toolbar-left">
+        <label>Provider
+          <select id="provider-select"></select>
+        </label>
+        <label>Window
+          <select id="window"><option value="6">6h</option><option value="24" selected>24h</option><option value="72">3d</option><option value="168">7d</option></select>
+        </label>
+      </div>
+      <div class="toolbar-right">
+        <label class="toggle-label"><input id="auto-refresh" type="checkbox"><span>Auto refresh</span></label>
+        <button class="square-btn" id="refresh">Refresh</button>
+        <span class="last-refresh" id="last-refresh">—</span>
+      </div>
+    </section>
+
+    <section class="metric-strip">
+      <div class="metric"><span>QUERIES</span><strong id="m-queries">—</strong><small id="m-queries-sub">selected provider</small></div>
+      <div class="metric"><span>BLOCKED</span><strong id="m-blocked">—</strong><small id="m-blocked-sub">selected provider</small></div>
+      <div class="metric"><span>ALLOWED</span><strong id="m-allowed">—</strong><small id="m-allowed-sub">selected provider</small></div>
+      <div class="metric"><span>BLOCK RATE</span><strong id="m-rate">—</strong><small>blocked ÷ queries</small></div>
+      <div class="metric"><span>PROVIDERS</span><strong id="m-providers">—</strong><small>analytics / local connectivity</small></div>
+    </section>
+
+    <section class="panel hero-panel">
+      <div class="panel-bar">
+        <div><div class="section-code">COMBINED STREAM</div><h2>All-provider traffic</h2><p>Aligned hourly buckets · solid = queries · dashed = blocked · dotted = allowed. Color identifies the provider.</p></div>
+        <div class="legend-wrap" id="combined-legend"></div>
+      </div>
+      <div id="chart-combined" class="chart chart-xl"></div>
+    </section>
+
+    <section class="service-grid" id="service-grid"></section>
+
+    <section class="split-grid">
+      <section class="panel">
+        <div class="panel-bar"><div><div class="section-code">SELECTED PROVIDER</div><h2 id="selected-title">Provider timeline</h2></div><span id="selected-status" class="status-chip">—</span></div>
+        <div id="chart-volume" class="chart chart-large"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-bar"><div><div class="section-code">BLOCK SOURCES</div><h2>Blocking reasons</h2></div></div>
+        <div id="chart-reasons" class="chart chart-large"></div>
+      </section>
+    </section>
+
+    <section class="tri-grid">
+      <section class="panel"><div class="panel-bar"><div><div class="section-code">DOMAINS</div><h2>Top queried</h2></div></div><div id="chart-domains" class="chart chart-list"></div></section>
+      <section class="panel"><div class="panel-bar"><div><div class="section-code">ENDPOINTS</div><h2>Devices</h2></div></div><div id="chart-devices" class="chart chart-list"></div></section>
+      <section class="panel"><div class="panel-bar"><div><div class="section-code">TRANSPORT</div><h2>DNS protocols</h2></div></div><div id="chart-protocols" class="chart chart-list"></div></section>
+    </section>
+
+    <section class="split-grid">
+      <section class="panel"><div class="panel-bar"><div><div class="section-code">RESOLVER COMPARISON</div><h2>Traffic volume by service</h2></div></div><div id="chart-providers" class="chart chart-large"></div></section>
+      <section class="panel"><div class="panel-bar"><div><div class="section-code">GEOGRAPHY</div><h2>Traffic map</h2><p>Provider-exposed country-level distribution.</p></div></div><div id="chart-map" class="chart chart-map"></div></section>
+    </section>
+
+    <section class="panel">
+      <div class="panel-bar"><div><div class="section-code">RECENT ACTIVITY</div><h2>Latest DNS queries</h2><p>All statuses, all providers. Open Live traffic for the full stream.</p></div><a class="square-btn" href="/activity">Open stream</a></div>
+      <div class="table-scroll"><table class="data-table"><thead><tr><th>TIME</th><th>SERVICE</th><th>DOMAIN</th><th>STATUS</th><th>DEVICE / CLIENT</th><th>REASON</th></tr></thead><tbody id="recent-body"></tbody></table></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-bar"><div><div class="section-code">CONNECTIVITY</div><h2>Provider state</h2><p>Failures are isolated. Policy API, analytics and live traffic are tracked separately.</p></div><span id="provider-count" class="status-chip">—</span></div>
+      <div id="providers" class="provider-state-list"></div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const $=id=>document.getElementById(id);
+const colors={
+  'NextDNS':'#6ee7d8',
+  'Control D':'#b4f23b',
+  'AdGuard DNS':'#ffcf66',
+  'AdGuard Home':'#9da8ff'
+};
+const providerNames=Object.keys(colors);
+let analytic={providers:[]}, recentLogs=[], charts={}, worldGeo=null, loading=false;
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function compact(v){v=Number(v||0);if(v>=1e9)return (v/1e9).toFixed(1)+'B';if(v>=1e6)return (v/1e6).toFixed(1)+'M';if(v>=1e3)return (v/1e3).toFixed(1)+'K';return String(v);}
+function fmtTime(v){if(!v)return '—';const d=new Date(v);return isNaN(d)?String(v):d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});}
+function fmtAxis(v){if(!v)return '—';const d=new Date(v);if(isNaN(d))return String(v);const hours=Number($('window')?.value||24);return hours>24?d.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit'}):d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window.__toast);window.__toast=setTimeout(()=>t.classList.remove('show'),3500);}
+async function api(url,opts={}){const r=await fetch(url,{headers:{'Content-Type':'application/json'},...opts});if(r.status===401){location.href='/login';throw new Error('Authentication required');}const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
+function chart(id){if(!charts[id])charts[id]=echarts.init($(id));return charts[id];}
+const grid='#20302a', axis='#82948d', text='#ecf2ed';
+function emptyChart(id,title,detail=''){const c=chart(id);c.clear();c.setOption({animation:false,title:{text:title,subtext:detail,left:'center',top:'42%',textStyle:{color:text,fontFamily:'ui-monospace, SFMono-Regular, Menlo, monospace',fontSize:14,fontWeight:600},subtextStyle:{color:axis,fontFamily:'ui-monospace, SFMono-Regular, Menlo, monospace',fontSize:11}}});}
+function findProvider(name){return analytic.providers.find(p=>p.provider===name);}
+function activeProvider(){return findProvider($('provider-select').value)||analytic.providers.find(p=>p.configured&&!p.error)||analytic.providers[0];}
+function populateProviderSelect(){const prev=$('provider-select').value;$('provider-select').innerHTML=(analytic.providers||[]).map(p=>`<option value="${esc(p.provider)}">${esc(p.provider)}${p.error&&p.provider!=="Control D"&& !p.timeline?.length?' — limited':' '}</option>`).join('');if(prev&&analytic.providers.some(p=>p.provider===prev))$('provider-select').value=prev;else $('provider-select').value=(analytic.providers.find(p=>p.configured&&!p.error)?.provider||analytic.providers[0]?.provider||'');}
+function timelineTotal(p,key){return (p.timeline||[]).reduce((a,b)=>a+Number(b[key]||0),0);}
+function buildCombined(){
+  const buckets=analytic.combined_timeline||[];
+  if(!buckets.length){emptyChart('chart-combined','No combined time series','Aligned hourly buckets will appear when analytics are available.');return;}
+  const times=buckets.map(x=>x.time);
+  const present=new Set();
+  for(const b of buckets){for(const name of Object.keys(b.providers||{}))present.add(name);}
+  const series=[];
+  const statusMeta={
+    queries:{type:'solid',width:2.5,opacity:1,label:'Q'},
+    blocked:{type:'dashed',width:1.6,opacity:.95,label:'B'},
+    allowed:{type:'dotted',width:1.35,opacity:.82,label:'A'}
+  };
+  for(const name of providerNames){
+    if(!present.has(name))continue;
+    for(const status of Object.keys(statusMeta)){
+      const meta=statusMeta[status];
+      const has=buckets.some(b=>b.providers?.[name]?.[status]!=null);
+      if(!has)continue;
+      series.push({
+        name:`${name} · ${meta.label}`,
+        type:'line',
+        connectNulls:false,
+        showSymbol:false,
+        data:buckets.map(b=>b.providers?.[name]?.[status] ?? null),
+        lineStyle:{color:colors[name],width:meta.width,type:meta.type,opacity:meta.opacity},
+        emphasis:{focus:'series'}
+      });
+    }
+  }
+  const c=chart('chart-combined');
+  c.setOption({
+    animation:false,
+    tooltip:{trigger:'axis',axisPointer:{type:'line'},backgroundColor:'#0b110e',borderColor:'#304036',textStyle:{color:text},formatter:items=>{
+      const head=items?.[0]?.axisValueLabel||'';
+      const body=(items||[]).filter(x=>x.value!=null).map(x=>`${x.marker}${esc(x.seriesName)}: <b>${compact(x.value)}</b>`).join('<br>');
+      return `<div>${head}</div>${body}`;
+    }},
+    legend:{show:false},
+    grid:{left:68,right:22,top:24,bottom:58},
+    xAxis:{type:'category',data:times.map(fmtAxis),axisLabel:{color:axis,fontSize:12,rotate:0,hideOverlap:true},axisTick:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:axis,fontSize:12},splitLine:{lineStyle:{color:grid}}},
+    series
+  });
+  $('combined-legend').innerHTML=`<div class="status-legend"><span><i class="legend-line q"></i>Queries</span><span><i class="legend-line b"></i>Blocked</span><span><i class="legend-line a"></i>Allowed</span></div>`+
+    providerNames.filter(n=>present.has(n)).map(n=>`<span class="provider-key"><i style="background:${colors[n]}"></i>${esc(n)}</span>`).join('');
+}
+function drawSelected(p){
+  $('selected-title').textContent=p?.provider||'Provider timeline';
+  $('selected-status').textContent=p?.error?'LIMITED':'ONLINE';
+  $('selected-status').className='status-chip '+(p?.error?'warn':'ok');
+  if(!p||!p.timeline?.length){emptyChart('chart-volume',p?.error?'Analytics limited':'No time-series data',p?.error||'');return;}
+  const labels=p.timeline.map(x=>fmtTime(x.time)); const c=chart('chart-volume');
+  c.setOption({animation:false,tooltip:{trigger:'axis',backgroundColor:'#0b110e',borderColor:'#304036',textStyle:{color:text}},legend:{top:0,right:0,textStyle:{color:axis}},grid:{left:55,right:18,top:30,bottom:48},xAxis:{type:'category',data:labels,axisLabel:{color:axis,rotate:20}},yAxis:{type:'value',axisLabel:{color:axis},splitLine:{lineStyle:{color:grid}}},series:[
+    {name:'Queries',type:'line',smooth:false,showSymbol:false,data:p.timeline.map(x=>x.queries||0),lineStyle:{color:colors[p.provider]||'#fff',width:2},areaStyle:{color:colors[p.provider],opacity:.06}},
+    {name:'Blocked',type:'line',smooth:false,showSymbol:false,data:p.timeline.map(x=>x.blocked||0),lineStyle:{color:'#ef6f76',width:1.6,type:'dashed'}},
+    {name:'Allowed',type:'line',smooth:false,showSymbol:false,data:p.timeline.map(x=>x.allowed||0),lineStyle:{color:'#9aa8a1',width:1.2,type:'dotted'}}
+  ]});
+}
+function bars(id,data){const c=chart(id);data=(data||[]).slice(0,12);if(!data.length){emptyChart(id,'No data exposed');return;}c.setOption({animation:false,tooltip:{trigger:'axis',backgroundColor:'#0b110e',borderColor:'#304036',textStyle:{color:text}},grid:{left:140,right:18,top:10,bottom:25},xAxis:{type:'value',axisLabel:{color:axis},splitLine:{lineStyle:{color:grid}}},yAxis:{type:'category',data:data.map(x=>x.name).reverse(),axisLabel:{color:axis,width:120,overflow:'truncate'}},series:[{type:'bar',data:data.map(x=>x.value).reverse(),barMaxWidth:18,itemStyle:{color:'#6ee7d8'}}]});}
+function reasons(p){const c=chart('chart-reasons');const d=(p.reasons||[]).slice(0,10);if(!d.length){emptyChart('chart-reasons','No blocking reasons');return;}c.setOption({animation:false,tooltip:{trigger:'item',backgroundColor:'#0b110e',borderColor:'#304036',textStyle:{color:text}},series:[{type:'pie',radius:['45%','74%'],center:['50%','46%'],data:d.map(x=>({name:x.name,value:x.value})),label:{show:false}}]});}
+function providersChart(){const list=analytic.providers||[];const c=chart('chart-providers');c.setOption({animation:false,tooltip:{trigger:'axis',backgroundColor:'#0b110e',borderColor:'#304036',textStyle:{color:text}},grid:{left:65,right:15,top:20,bottom:55},xAxis:{type:'category',data:list.map(p=>p.provider),axisLabel:{color:axis,rotate:18}},yAxis:{type:'value',axisLabel:{color:axis},splitLine:{lineStyle:{color:grid}}},series:[{type:'bar',data:list.map(p=>({value:p.total_queries||0,itemStyle:{color:colors[p.provider]||'#65726c',opacity:p.error?.35:1}})),barMaxWidth:38}]});}
+function mapChart(p){const c=chart('chart-map');const rows=(p?.countries||[]).filter(x=>x.code);if(!rows.length||!worldGeo){emptyChart('chart-map',!rows.length?'No country data':'Map unavailable',!rows.length?'Provider did not expose geography in this range.':'Local world map data did not load.');return;}const names={};for(const f of worldGeo.features||[]){const code=String(f.properties?.iso2||'').toUpperCase();if(code)names[code]=f.properties?.name||code;}const data=rows.map(x=>({name:names[String(x.code).toUpperCase()]||x.code,value:x.value}));c.setOption({animation:false,tooltip:{backgroundColor:'#0b110e',borderColor:'#304036',textStyle:{color:text},formatter:q=>`${q.name}<br><b>${compact(q.value||0)}</b> queries`},visualMap:{min:0,max:Math.max(...data.map(x=>x.value),1),left:18,bottom:18,textStyle:{color:axis},inRange:{color:['#111a15','#28452e','#77cb7a']}},series:[{type:'map',map:'world',roam:true,data,itemStyle:{areaColor:'#111815',borderColor:'#2b3a32',borderWidth:.6},emphasis:{label:{show:false},itemStyle:{areaColor:'#3e6548'}}}]});}
+function serviceCards(){const host=$('service-grid');host.innerHTML=(analytic.providers||[]).map(p=>{const q=timelineTotal(p,'queries'), b=timelineTotal(p,'blocked'), a=timelineTotal(p,'allowed'), state=p.error?'warn':'ok';return `<section class="service-card"><div class="service-head"><div><span class="service-dot" style="background:${colors[p.provider]}"></span><strong>${esc(p.provider)}</strong></div><span class="status-chip ${state}">${p.error?'LIMITED':'ONLINE'}</span></div><div class="service-metrics"><div><span>Q</span><b>${compact(q)}</b></div><div><span>B</span><b>${compact(b)}</b></div><div><span>A</span><b>${compact(a)}</b></div></div><div class="service-note">${esc(p.error||'Analytics available')}</div><div id="mini-${p.provider.replace(/[^A-Za-z0-9]/g,'')}" class="mini-chart"></div></section>`;}).join('');
+  for(const p of analytic.providers||[]){const id=`mini-${p.provider.replace(/[^A-Za-z0-9]/g,'')}`;const el=$(id);if(!el)continue;const c=echarts.init(el);c.setOption({animation:false,grid:{left:0,right:0,top:2,bottom:0},xAxis:{show:false,type:'category',data:(p.timeline||[]).map((_,i)=>i)},yAxis:{show:false,type:'value'},series:[{type:'line',showSymbol:false,data:(p.timeline||[]).map(x=>x.queries||0),lineStyle:{color:colors[p.provider],width:1.7}}]});charts[id]=c;}
+}
+function renderProviderStates(status){const sm={};for(const x of status||[])sm[x.name]=x;const list=analytic.providers||[];const online=list.filter(p=>{const s=sm[p.provider]||{};return s.error?false:true}).length;$('m-providers').textContent=`${online}/${list.length}`;$('provider-count').textContent=`${online}/${list.length} online`;$('providers').innerHTML=list.map(p=>{const s=sm[p.provider]||{};const ok=!s.error;return `<div class="provider-state"><div><span class="service-dot" style="background:${colors[p.provider]}"></span><strong>${esc(p.provider)}</strong><div class="muted">${esc(p.error||p.partial_errors&&Object.values(p.partial_errors).join(' · ')||'Connected')}</div></div><div class="provider-stat">${compact(p.total_queries||0)} Q · ${compact(p.blocked_queries||0)} B</div></div>`}).join('');$('rail-services').innerHTML=list.map(p=>`<div class="rail-service"><span class="service-dot" style="background:${colors[p.provider]}"></span><span>${esc(p.provider)}</span><span class="rail-service-state ${p.error?'warn':'ok'}">${p.error?'!':'●'}</span></div>`).join('');}
+function renderRecent(rows){$('recent-body').innerHTML=(rows||[]).slice(0,30).map(r=>`<tr><td>${esc(fmtTime(r.timestamp))}</td><td><span class="service-label" style="--service:${colors[r.provider]||'#aaa'}">${esc(r.provider)}</span></td><td class="mono">${esc(r.domain)}</td><td><span class="action ${r.action}">${esc(r.action.toUpperCase())}</span></td><td>${esc(r.device||r.client||'—')}</td><td class="muted">${esc(r.reason||'—')}</td></tr>`).join('')||'<tr><td colspan="6" class="empty-cell">No recent traffic returned.</td></tr>';}
+async function load(fresh=false){if(loading)return;loading=true;try{const hours=$('window').value;const [aRes,sRes,lRes]=await Promise.allSettled([api('/api/analytics?hours='+hours),api('/api/status'),api('/api/logs?minutes=2&limit=120&fresh='+(fresh?'1':'0'))]);if(aRes.status!=='fulfilled')throw aRes.reason;analytic=aRes.value;const s=sRes.status==='fulfilled'?sRes.value:{providers:[]};const l=lRes.status==='fulfilled'?lRes.value:{rows:[],messages:{console:lRes.reason?.message||'Live log unavailable'}};populateProviderSelect();const p=activeProvider();const q=timelineTotal(p,'queries'),b=timelineTotal(p,'blocked'),al=timelineTotal(p,'allowed');$('m-queries').textContent=compact(q);$('m-blocked').textContent=compact(b);$('m-allowed').textContent=compact(al);$('m-rate').textContent=`${(b/Math.max(q,1)*100).toFixed(2)}%`;buildCombined();serviceCards();drawSelected(p);reasons(p);bars('chart-domains',p.domains);bars('chart-devices',p.devices);bars('chart-protocols',p.protocols);providersChart();mapChart(p);renderProviderStates(s.providers||[]);recentLogs=l.rows||[];renderRecent(recentLogs);$('last-refresh').textContent='updated '+new Date().toLocaleTimeString();const liveMessages=l.messages||{};if(liveMessages.console)toast('Live traffic: '+liveMessages.console);if(liveMessages['Control D'])toast('Control D: '+liveMessages['Control D']);}catch(e){toast(e.message);}finally{loading=false;}}
+$('refresh').onclick=()=>load(true);$('window').onchange=()=>load(false);$('provider-select').onchange=()=>load(false);$('auto-refresh').onchange=()=>{if($('auto-refresh').checked)startAuto();else stopAuto();};let autoTimer=null;function startAuto(){stopAuto();autoTimer=setInterval(()=>load(false),15000);}function stopAuto(){if(autoTimer)clearInterval(autoTimer);autoTimer=null;}
+(async()=>{try{const r=await fetch('/static/world.json',{cache:'no-store'});worldGeo=await r.json();echarts.registerMap('world',worldGeo);}catch(e){worldGeo=null;}await load(true);})();window.addEventListener('resize',()=>Object.values(charts).forEach(c=>c?.resize()));
+</script>
+</body>
+</html>

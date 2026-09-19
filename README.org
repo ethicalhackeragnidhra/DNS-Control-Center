@@ -1,0 +1,403 @@
+#+TITLE: DNS Control Center
+#+SUBTITLE: Self-hosted DNS observability, live traffic, and unified policy management
+#+AUTHOR: Agnidhra
+#+STARTUP: overview
+#+OPTIONS: toc:2 num:nil H:4
+
+* Overview
+
+DNS Control Center is a self-hosted web console for observing and managing a multi-provider DNS stack from one place.
+
+It is designed for environments where several DNS services are used together, including parallel upstreams. The console keeps provider data separate where appropriate, then provides a normalized combined view for comparison and trend analysis.
+
+Supported providers:
+
+- NextDNS
+- Control D
+- AdGuard DNS
+- AdGuard Home
+
+The application is intentionally suitable for private deployment behind Tailscale, a LAN, or a private reverse proxy. Provider credentials stay server-side and are never exposed to the browser.
+
+* Core capabilities
+** Overview / DNS analytics
+
+The overview dashboard provides:
+
+- Per-provider query volume.
+- Per-provider blocked-query volume.
+- Per-provider allowed-query volume.
+- Block rate.
+- Provider connectivity and API status.
+- Provider-specific timelines using the native data supplied by each service.
+- A normalized combined traffic graph for cross-provider comparison.
+- Blocking-reason distribution.
+- Top queried domains.
+- Top blocked domains where the provider exposes them.
+- Device / client activity where the provider exposes it.
+- DNS protocol statistics where the provider exposes it.
+- Country / traffic geography where the provider exposes it.
+- Recently blocked domains aggregated across providers.
+
+The combined graph is deliberately normalized to a common hourly UTC grid. This prevents different provider-native bucket sizes from creating artificial zig-zag patterns. Missing provider data remains missing instead of being rendered as invented zero traffic.
+
+Because parallel upstreams can observe the same DNS request, provider totals are kept independent. The console does not silently add all resolver counts together and present them as unique client traffic.
+
+** Live Traffic
+
+The Live Traffic page is designed for quick operational inspection rather than historical reporting.
+
+It provides:
+
+- Latest DNS queries across available providers.
+- Allowed, blocked, and error events.
+- Provider filtering.
+- Status filtering.
+- Domain search.
+- Manual refresh.
+- Optional automatic polling.
+- Client / device / protocol / country columns where available.
+- Blocking reason or provider action.
+- Local SQLite-backed reads for fast UI refreshes.
+
+A background worker periodically pulls recent logs from providers that expose query-log APIs. Normal page refreshes read the local SQLite cache, so a slow upstream does not need to delay the activity table.
+
+A manual refresh explicitly requests fresh provider data.
+
+** Policy Manager
+
+The Policy Manager is independent of the blocked-domain log. A domain can be added even if it has never appeared in a query log.
+
+For each domain you can choose:
+
+- Allow / Bypass.
+- Block.
+- All configured providers.
+- A single provider.
+- An optional audit note.
+
+The policy view also provides a unified provider matrix so the same domain can be compared across NextDNS, Control D, AdGuard DNS, and AdGuard Home.
+
+The application treats Allow and Block as mutually exclusive desired states. When a domain changes from Allow to Block, the corresponding allow rule is removed before the block rule is added. Changing from Block to Allow performs the inverse transition. This prevents stale opposing rules from remaining active on the same provider.
+
+The central SQLite exception record is synchronized with global Allow / Block operations.
+
+** Provider policy snapshots
+
+The policy manager pulls explicit rules and configured list/filter sources exposed by each provider.
+
+Important distinction: the application shows configured third-party list sources; it does not attempt to download and expand millions of individual rules from every upstream list.
+
+The policy snapshot can include:
+
+- Explicit allow rules.
+- Explicit block rules.
+- Provider-specific custom rules.
+- Filter/list metadata exposed by the provider.
+- Rule counts when the provider exposes them.
+- Provider configuration / version information when available.
+
+** Audit trail
+
+Policy changes are recorded in SQLite with:
+
+- Domain.
+- Action.
+- Provider.
+- Success/failure.
+- Error/detail text.
+- Timestamp.
+
+A domain inspection can show the current provider state together with its recent audit history.
+
+* Provider integration
+** NextDNS
+
+The NextDNS adapter supports:
+
+- Profile status/configuration.
+- Analytics.
+- Time-series traffic.
+- Blocking reasons.
+- Top domains.
+- Devices.
+- Protocols.
+- Destination/country analytics when exposed by the API.
+- Blocked query logs.
+- Recent query logs.
+- Allowlist management.
+- Denylist management.
+- Provider policy inspection.
+
+The application uses the configured NextDNS profile ID and API key.
+
+** Control D
+
+Control D supports policy management through its public API, including profile discovery and custom rule operations such as BYPASS and BLOCK.
+
+The application also supports:
+
+- Profile validation / discovery.
+- Profile name based configuration.
+- Policy snapshots.
+- Custom BYPASS / BLOCK rules.
+- Optional organization analytics configuration.
+- Optional SIEM/log ingestion into the local live stream.
+
+Control D's public API does not expose the dashboard's historical DNS Activity Log in the same way as NextDNS or AdGuard's query-log APIs. Therefore the application does not fabricate Control D traffic when that data is unavailable.
+
+For eligible Control D organization log streaming, normalized events can be sent to:
+
+#+begin_src text
+POST /api/ingest/controld
+X-DNS-Control-Ingest: <CONTROLD_LOG_INGEST_SECRET>
+#+end_src
+
+Once ingested, Control D events are stored in the same local live-log database and become available to the activity stream and combined views.
+
+** AdGuard DNS
+
+The AdGuard DNS adapter supports:
+
+- DNS server discovery/validation.
+- Server settings.
+- Query logs.
+- Blocked query logs.
+- Time statistics.
+- Country statistics where exposed.
+- Domain statistics.
+- Device statistics.
+- Explicit user-rule inspection.
+- Explicit user-rule updates.
+- Configured filtering-list metadata.
+
+The configured server ID is the AdGuard DNS server ID returned by the DNS server API. The integration updates the server's user-rule settings while preserving the other settings returned by the API.
+
+** AdGuard Home
+
+The AdGuard Home adapter supports:
+
+- Server status.
+- Filtering status.
+- Query logs.
+- Blocked query inspection.
+- Statistics.
+- Top queried domains.
+- Top blocked domains where exposed.
+- Top clients.
+- User filtering rules.
+- Allow/block rule transitions.
+
+The AdGuard Home URL should point to the control API base, normally on port 3000.
+
+* Data architecture
+
+The application uses a small local SQLite database at:
+
+#+begin_src text
+/app/data/dns-control-center.db
+#+end_src
+
+Persistent data includes:
+
+- Central exceptions.
+- Policy audit entries.
+- Recent normalized live DNS events.
+
+The database is mounted through Docker Compose so restarting/rebuilding the container does not erase the local state.
+
+The live query store uses stable event hashes to reduce duplicate insertion when background polling repeatedly sees the same upstream query.
+
+Provider requests are executed concurrently where practical. A provider failure is isolated and surfaced in that provider's status instead of making the entire dashboard fail.
+
+* Web routes
+
+The main web pages are:
+
+| Route      | Purpose |
+|------------+---------|
+| =/=        | DNS overview / analytics |
+| =/activity= | Live traffic stream |
+| =/policies= | Unified policy manager |
+| =/login=    | Local application login |
+
+Important authenticated API endpoints include:
+
+| Endpoint | Purpose |
+|-------------------------------+---------------------------------------------|
+| =/api/status=                 | Provider/application status |
+| =/api/analytics=              | Per-provider analytics + combined timeline |
+| =/api/blocked=                | Aggregated blocked domains |
+| =/api/logs=                   | Local live-log view, optionally with fresh pull |
+| =/api/policies=               | Provider policy snapshots |
+| =/api/exceptions=             | Central exception records |
+| =/api/domain/<domain>=        | Provider state + audit history for a domain |
+| =/api/policy/add=             | Add Allow/Block policy |
+| =/api/policy/remove=          | Remove explicit policy |
+| =/api/sync=                   | Trigger provider policy synchronization |
+| =/api/ingest/controld=        | Optional Control D log ingestion |
+| =/health=                     | Container health check |
+
+* Deployment
+** Docker Compose
+
+Clone the repository and create the local environment file:
+
+#+begin_src sh
+cp .env.example .env
+#+end_src
+
+Edit =.env= and provide the credentials/IDs for the providers you use.
+
+Build and start:
+
+#+begin_src sh
+docker compose up -d --build
+#+end_src
+
+The default host port is 8080. It can be changed without modifying the container port:
+
+#+begin_src text
+HOST_PORT=5369
+#+end_src
+
+Then access:
+
+#+begin_src text
+http://<server>:5369/
+#+end_src
+
+The example above follows the same pattern as =HOST_PORT=8080= in the supplied .env example.
+
+** Recommended network exposure
+
+Keep the console on a trusted network. Suitable deployment patterns include:
+
+- Tailscale-only access.
+- LAN-only access.
+- A private reverse proxy.
+- A firewall rule restricted to management clients.
+
+Do not publish provider API credentials to the browser or expose the Flask application directly to the public internet without an appropriate authentication/reverse-proxy layer.
+
+** Environment configuration
+
+#+begin_src text
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<strong password>
+FLASK_SECRET_KEY=<long random secret>
+
+NEXTDNS_API_KEY=<api key>
+NEXTDNS_PROFILE_ID=<profile id>
+
+CONTROLD_API_TOKEN=<api token>
+CONTROLD_PROFILE_ID=<profile primary key>
+CONTROLD_PROFILE_NAME=<optional profile name>
+
+ADGUARD_DNS_API_KEY=<api key>
+ADGUARD_DNS_SERVER_ID=<dns server id>
+
+ADGUARD_HOME_URL=http://<host>:3000
+ADGUARD_HOME_USER=<user>
+ADGUARD_HOME_PASSWORD=<password>
+#+end_src
+
+Optional settings control log windows, browser live polling, provider enablement, Control D analytics, Control D SIEM ingestion, and the application display name. See =.env.example= for the full reference.
+
+* Control D profile configuration
+
+The Control D integration expects the profile's primary key / PK, not a resolver/device ID.
+
+If the account exposes profile lookup, the application can validate the configured ID and can use =CONTROLD_PROFILE_NAME= as an additional resolution hint.
+
+For policy operations, the selected profile is the profile whose rules are modified by the application.
+
+* Emacs / Org mode
+
+This README is intentionally written as an Org-mode document so it can be opened directly in Emacs, searched with =org-mode=, and extended with headings, source blocks, links, tables, and drawers without converting it first.
+
+Open it with:
+
+#+begin_src emacs-lisp
+(find-file "README.org")
+#+end_src
+
+Useful Org commands:
+
+- =C-c C-t= :: cycle a heading state when TODO keywords are used.
+- =TAB= :: fold/unfold the current heading.
+- =S-TAB= :: cycle global visibility.
+- =C-c C-c= :: activate/edit Org elements such as checkboxes or blocks.
+- =C-c C-o= :: open a link at point.
+
+The source blocks are ordinary Org source blocks and can be edited without affecting the application. No Org Babel evaluation is required to operate DNS Control Center.
+
+* Security notes
+
+- Store API keys only in =.env= or another secret mechanism on the host.
+- Keep =.env= out of Git; the included =.gitignore= does this.
+- Use a high-entropy =FLASK_SECRET_KEY=.
+- Change the default admin password before deployment.
+- Keep the application behind Tailscale/LAN/private ingress whenever possible.
+- Treat provider API credentials as privileged management secrets.
+- The browser should communicate with the local application only; provider credentials are used server-side.
+
+* Known limitations
+
+** Control D historical logs
+
+Control D policy management works through the documented public API. Historical/real-time Activity Log access is not exposed through the same public API surface available for policy operations. Use the optional organization/SIEM ingest path when eligible.
+
+** Provider-specific fields
+
+Not every provider exposes every analytical dimension. The UI therefore treats devices, protocols, countries, reasons, and other dimensions as provider-dependent rather than inventing values.
+
+** Combined analytics
+
+The combined graph is a normalized comparison view, not a claim of unique client DNS traffic. Parallel upstreams can observe the same DNS query, so combined provider totals should not be interpreted as deduplicated network-wide request counts.
+
+* Repository layout
+
+#+begin_src text
+.
+├── README.org
+├── .env.example
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── app/
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── config.py
+│   ├── db.py
+│   ├── providers.py
+│   └── server.py
+├── static/
+│   ├── app.css
+│   └── world.json
+└── templates/
+    ├── login.html
+    ├── index.html
+    ├── activity.html
+    └── policies.html
+#+end_src
+
+* GitHub upload
+
+The supplied repository package is already cleaned for source control. The runtime SQLite database, =.env=, Python bytecode, and local editor files are ignored.
+
+Typical first push:
+
+#+begin_src sh
+git init
+git add .
+git commit -m "Initial DNS Control Center"
+git branch -M main
+git remote add origin <your-github-repository-url>
+git push -u origin main
+#+end_src
+
+* License
+
+No license is imposed by this repository package. Add the license that matches how you intend to distribute the project before making the repository public.

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Live Traffic · {{ app_name }}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body class="console-body">
+<div class="console-shell">
+  <aside class="rail">
+    <div class="brand-block"><div class="brand-mark">D</div><div><div class="brand-name">{{ app_name }}</div><div class="brand-sub">DNS observatory</div></div></div>
+    <div class="rail-section">MONITOR</div>
+    <nav><a class="nav-link" href="/"><span class="nav-icon">◈</span>Overview</a><a class="nav-link active" href="/activity"><span class="nav-icon">≋</span>Live traffic</a><a class="nav-link" href="/policies"><span class="nav-icon">⌘</span>Policies</a></nav>
+    <div class="rail-section">STREAM</div>
+    <div class="stream-help"><strong>Live refresh</strong><p>NextDNS, AdGuard DNS and AdGuard Home are polled from their query logs. Control D requires log ingestion for this console.</p></div>
+    <div class="rail-foot"><div class="system-state"><span class="state-dot"></span>Local console</div><form method="post" action="/logout"><button class="ghost-link">Sign out</button></form></div>
+  </aside>
+  <main class="workspace">
+    <header class="topbar"><div><div class="crumb">DNS / LIVE TRAFFIC</div><h1>DNS activity stream</h1><p>Allowed, blocked and error queries. Manual refresh or continuous polling.</p></div><div class="top-actions"><span id="live-state" class="live-indicator"><span class="state-dot"></span>PAUSED</span><a class="square-btn" href="/">Overview</a><a class="square-btn primary" href="/policies">Policies</a></div></header>
+    <section class="toolbar activity-toolbar">
+      <label>Provider<select id="log-provider"><option>all</option><option>NextDNS</option><option>Control D</option><option>AdGuard DNS</option><option>AdGuard Home</option></select></label>
+      <label>Status<select id="log-status"><option>all</option><option>allowed</option><option>blocked</option><option>error</option></select></label>
+      <label>Window<select id="log-window"><option value="1">1m</option><option value="5" selected>5m</option><option value="15">15m</option><option value="60">1h</option></select></label>
+      <label class="search-field">Search<input id="log-search" placeholder="domain / client"></label>
+      <label class="toggle-label activity-toggle"><input id="log-live" type="checkbox"><span>Auto refresh</span></label>
+      <button class="square-btn" id="log-refresh">Refresh</button>
+      <span class="last-refresh" id="log-updated">—</span>
+    </section>
+    <section class="metric-strip activity-metrics"><div class="metric"><span>VISIBLE</span><strong id="log-visible">—</strong><small>rows</small></div><div class="metric"><span>ALLOWED</span><strong id="log-allowed">—</strong><small>returned</small></div><div class="metric"><span>BLOCKED</span><strong id="log-blocked">—</strong><small>returned</small></div><div class="metric"><span>ERROR</span><strong id="log-errors">—</strong><small>returned</small></div><div class="metric"><span>STREAM</span><strong id="log-services">—</strong><small>services represented</small></div></section>
+    <section class="panel"><div class="panel-bar"><div><div class="section-code">ACTIVITY</div><h2>Latest queries</h2><p id="log-source">Query logs polled from configured providers.</p></div></div><div class="table-scroll"><table class="data-table activity-table"><thead><tr><th>TIME</th><th>SERVICE</th><th>DOMAIN</th><th>STATUS</th><th>DEVICE</th><th>CLIENT</th><th>PROTOCOL</th><th>COUNTRY</th><th>REASON / ACTION</th></tr></thead><tbody id="log-body"></tbody></table></div></section>
+    <section class="panel"><div class="panel-bar"><div><div class="section-code">CONTROL D</div><h2>Live log integration</h2><p>Control D's public API does not expose query/activity data. Its documentation supports real-time Activity Log in the dashboard and SIEM streaming for eligible organization customers.</p></div></div><div class="integration-box"><div><strong>Ingest endpoint</strong><code>/api/ingest/controld</code></div><div><strong>Authentication</strong><span>Set <code>CONTROLD_LOG_INGEST_SECRET</code> and send it in <code>X-DNS-Control-Ingest</code>.</span></div><div><strong>Result</strong><span>Once Control D SIEM/forwarding sends JSON records here, they appear in the same live stream and combined graphs.</span></div></div></section>
+  </main>
+</div><div class="toast" id="toast"></div>
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmt(v){if(!v)return '—';const d=new Date(v);return isNaN(d)?String(v):d.toLocaleString();}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window.__t);window.__t=setTimeout(()=>t.classList.remove('show'),3500);}
+async function api(url){const r=await fetch(url,{headers:{'Content-Type':'application/json'}});if(r.status===401){location.href='/login';throw new Error('Authentication required');}const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
+let timer=null,dummyBackendStamp='';
+function render(rows,messages,refreshedAt){const by={};for(const r of rows){by[r.action]=(by[r.action]||0)+1;}$('log-visible').textContent=rows.length;$('log-allowed').textContent=by.allowed||0;$('log-blocked').textContent=by.blocked||0;$('log-errors').textContent=by.error||0;$('log-services').textContent=new Set(rows.map(x=>x.provider)).size;$('log-body').innerHTML=rows.length?rows.map(r=>`<tr><td class="mono">${esc(fmt(r.timestamp))}</td><td><span class="service-label service-${r.provider.replace(/\s/g,'-').toLowerCase()}">${esc(r.provider)}</span></td><td class="mono">${esc(r.domain)}</td><td><span class="action ${r.action}">${esc(r.action.toUpperCase())}</span></td><td>${esc(r.device||'—')}</td><td>${esc(r.client||'—')}</td><td>${esc(r.protocol||'—')}</td><td>${esc(r.country||'—')}</td><td class="muted">${esc(r.reason||'—')}</td></tr>`).join(''):`<tr><td colspan="9" class="empty-cell">No queries returned for this window.</td></tr>`;const ctl=messages?.['Control D'];const consoleMsg=messages?.console;const stamp=dummyBackendStamp=refreshedAt?new Date(refreshedAt).toLocaleTimeString():'';$('log-source').textContent=consoleMsg?`Console: ${consoleMsg}`:(ctl?`Control D: ${ctl}`:(stamp?`Background poll ${stamp}. Manual refresh performs a fresh provider pull.`:'Background poll is initializing. Manual refresh performs a fresh provider pull.'));}
+async function load(fresh=false){try{const q=new URLSearchParams({provider:$('log-provider').value,status:$('log-status').value,minutes:$('log-window').value,limit:'600',search:$('log-search').value.trim(),fresh:fresh?'1':'0'});const d=await api('/api/logs?'+q.toString());render(d.rows||[],d.messages||{},d.refreshed_at);$('log-updated').textContent='updated '+new Date().toLocaleTimeString();}catch(e){toast(e.message);}}
+$('log-refresh').onclick=()=>load(true);$('log-provider').onchange=()=>load(false);$('log-status').onchange=()=>load(false);$('log-window').onchange=()=>load(false);$('log-search').oninput=()=>{clearTimeout(window.__s);window.__s=setTimeout(load,250);};$('log-live').onchange=()=>{if($('log-live').checked){$('live-state').innerHTML='<span class="state-dot"></span>LIVE';timer=setInterval(()=>load(false),1000);}else{$('live-state').innerHTML='<span class="state-dot"></span>PAUSED';clearInterval(timer);timer=null;}};
+load(true);
+</script>
+</body></html>
